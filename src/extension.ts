@@ -144,13 +144,11 @@ async function findFuncInFile(input: vscode.Uri): Promise<string[]> {
 			const json = JSON.parse(file); // json形式として扱う
 
 			if (["tags/function"].includes(paths[1])) { //  リストの中の生の値か、{}.idを取る
-				results = json["values"].filter((value: unknown) => {
-					if (typeof value === "object" && value !== null && "id" in value && typeof value.id === "string") {
-						return value.id;
-					}
-					return value;
+				for (const value of json["values"]) {
+					if (typeof value === "string") { results.push(value); }
+
+					else if (value !== null && typeof value === "object" && "id" in value && typeof value.id === "string") { results.push(value.id); }
 				}
-				);
 
 			} else if (["advancement"].includes(paths[1])) { // advancement: rewards.functionの中身があれば良い
 				results =
@@ -170,10 +168,7 @@ async function findFuncInFile(input: vscode.Uri): Promise<string[]> {
 						pickFuncInCommand(findObjectInJson(json, "type", "command", "run_command"))
 					);
 
-			} else if (["loot_table"].includes(paths[1])) { // "command"の中身がfunctionであれば取る
-				results = pickFuncInCommand(findObjectInJson(json, "action", "command", "run_command"));
-
-			} else if (["recipe"].includes(paths[1])) { // "command"の中身がfunctionであれば取る
+			} else if (["loot_table", "recipe", "item_modifier"].includes(paths[1])) { // "command"の中身がfunctionであれば取る
 				results = pickFuncInCommand(findObjectInJson(json, "action", "command", "run_command"));
 
 			}
