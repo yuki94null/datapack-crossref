@@ -130,8 +130,6 @@ async function readFile(input: vscode.Uri): Promise<Thenable<string>> {
 async function findFuncInFile(input: vscode.Uri): Promise<string[]> {
 
 	let results: string[] = [];
-
-	console.log("find: " + input);
 	const paths = map.get(input); // 辞書から探す
 
 	if (!paths) { return results; }
@@ -141,68 +139,44 @@ async function findFuncInFile(input: vscode.Uri): Promise<string[]> {
 	const file = await readFile(input); // 中の文字列取得
 
 	if (["json"].includes(paths[2])) { // json系の処理
-		console.log("JSON始まり");
-		const json = JSON.parse(file); // json形式として扱う
 
-		if (paths[1] === "advancement") { // advancement: rewards.functionの中身があれば良い
-			results = json["rewards"]["function"];
+		try {
+			const json = JSON.parse(file); // json形式として扱う
 
-		} else if (paths[1] === "enchantment") { // enchantments: effects下のrun_functionと同じところのfunctionを取る
-			const func = (obj: unknown): string[] => {
-				const results: string[] = [];
-
-				if (typeof obj !== "object" || obj === null) {
-					return results;
+			if (["tags/function"].includes(paths[1])) { //  リストの中の生の値か、{}.idを取る
+				results = json["values"].filter((value: unknown) => {
+					if (typeof value === "object" && value !== null && "id" in value && typeof value.id === "string") {
+						return value.id;
+					}
+					return value;
 				}
+				);
+			} else if (["advancement"].includes(paths[1])) { // advancement: rewards.functionの中身があれば良い
+				results = 
+					pickFuncInCommand(findObjectInJson(json["display"], "action", "command", "run_command")).concat(
+					json["rewards"]["function"]);
 
-				if ("function" in obj &&
-					"type" in obj &&
-					(obj.type === "run_function" || obj.type === "minecraft:run_function") &&
-					typeof obj.function === "string") {
-					results.push(obj.function);
-				}
+			} else if (["enchantment"].includes(paths[1])) { // enchantments: effects下のrun_functionと同じところのfunctionを取る
+				results =
+					pickFuncInCommand(findObjectInJson(json, "action", "command", "run_command")).concat(
+						pickFuncInCommand(findObjectInJson(json, "type", "function", "run_function"))
+					);
 
-				for (const value of Object.values(obj)) {
-					results.push(...func(value));
-				}
+			} else if (["dialog"].includes(paths[1])) { // "command"の中身がfunctionであれば取る
+				results =
+					pickFuncInCommand(findObjectInJson(json, "action", "command", "run_command")).concat(
+						pickFuncInCommand(findObjectInJson(json, "type", "command", "run_command"))
+					);
 
-				return results;
-			};
+			} else if (["loot_table"].includes(paths[1])) { // "command"の中身がfunctionであれば取る
+				results = pickFuncInCommand(findObjectInJson(json, "action", "command", "run_command"));
 
-			results = func(json["effects"]);
-
-		} else if (paths[1] === "tags/function") { //  リストの中の生の値か、{}.idを取る
-			results = json["values"].filter((value: unknown) => {
-				if (typeof value === "object" && value !== null && "id" in value) {
-					return value.id;
-				}
-				return value;
+			} else if (["recipe"].includes(paths[1])) { // "command"の中身がfunctionであれば取る
+				results = pickFuncInCommand(findObjectInJson(json, "action", "command", "run_command"));
 			}
-			);
-		} else if (["dialog", "recipe", "loot_table"].includes(paths[1])) { // "command"の中身がfunctionであれば取る
-			const func = (obj: unknown): string[] => {
-				const results: string[] = [];
-
-				if (typeof obj !== "object" || obj === null) {
-					return results;
-				}
-
-				if (
-					"type" in obj &&
-					obj.type === "run_command" &&
-					"command" in obj &&
-					typeof obj.command === "string"
-				) {
-					results.push(obj.command);
-				}
-
-				for (const value of Object.values(obj)) {
-					results.push(...func(value));
-				}
-
-				return results;
-			};
-			results = pickFuncInCommand(func(json));
+		} catch {
+			vscode.window.showErrorMessage(paths[0] + " is invalid");
+			console.warn("invalid structure: " + input);
 		}
 	}
 	else if (paths[1] === "function") {
@@ -210,7 +184,9 @@ async function findFuncInFile(input: vscode.Uri): Promise<string[]> {
 		results = pickFuncInCommand(commands);
 	}
 
-	return [];
+	console.log(paths[1]);
+	console.log("result: " + results);
+	return results;
 }
 
 function textToCommand(input: string): string[] { // '\\n'(バックスラッシュ+改行)をスペースに置き換え、改行ごとにリストに変換
@@ -225,6 +201,30 @@ function pickFuncInCommand(input: string[]): string[] {
 	const regax = /\bfunction ((?![^ ]*\$)[^ ]+)/g;
 
 	input.map((value: string) => results.push(...[...value.matchAll(regax)].map(match => match[1]))); // 正規表現`regax`にヒットしたもののうち、
+
+	return results;
+}
+
+function findObjectInJson(json: unknown, key1: string, key2: string, obj: string): string[] {
+
+	const results: string[] = [];
+
+	if (typeof json !== "object" || json === null) {
+		return results;
+	}
+
+	const record = json as Record<string, unknown>;
+
+	if (key1 in record &&
+		key2 in record &&
+		(record[key1] === obj || record[key1] === "minecraft:" + obj) &&
+		typeof record[key2] === "string") {
+		results.push(record[key2]);
+	}
+
+	for (const value of Object.values(record)) {
+		results.push(...findObjectInJson(value, key1, key2, obj));
+	}
 
 	return results;
 }
