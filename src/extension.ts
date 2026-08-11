@@ -151,15 +151,17 @@ async function findFuncInFile(input: vscode.Uri): Promise<string[]> {
 					return value;
 				}
 				);
+
 			} else if (["advancement"].includes(paths[1])) { // advancement: rewards.functionの中身があれば良い
-				results = 
+				results =
 					pickFuncInCommand(findObjectInJson(json["display"], "action", "command", "run_command")).concat(
-					json["rewards"]["function"]);
+						json["rewards"]["function"]
+					);
 
 			} else if (["enchantment"].includes(paths[1])) { // enchantments: effects下のrun_functionと同じところのfunctionを取る
 				results =
 					pickFuncInCommand(findObjectInJson(json, "action", "command", "run_command")).concat(
-						pickFuncInCommand(findObjectInJson(json, "type", "function", "run_function"))
+						findObjectInJson(json["effects"], "type", "function", "run_function")
 					);
 
 			} else if (["dialog"].includes(paths[1])) { // "command"の中身がfunctionであれば取る
@@ -173,6 +175,7 @@ async function findFuncInFile(input: vscode.Uri): Promise<string[]> {
 
 			} else if (["recipe"].includes(paths[1])) { // "command"の中身がfunctionであれば取る
 				results = pickFuncInCommand(findObjectInJson(json, "action", "command", "run_command"));
+
 			}
 		} catch {
 			vscode.window.showErrorMessage(paths[0] + " is invalid");
