@@ -9,7 +9,10 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onLanguage:mcfunction",
+    "onLanguage:json"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
@@ -20,6 +23,14 @@
       {
         "command": "datapack-crossref.scanDatapack",
         "title": "Scan Datapack"
+      },
+      {
+        "command": "datapack-crossref.removeCrossRef",
+        "title": "Remove CrossRef"
+      },
+      {
+        "command": "datapack-crossref.makeCrossRef",
+        "title": "make CrossRef"
       }
     ]
   },
