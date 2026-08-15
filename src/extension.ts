@@ -1,16 +1,10 @@
 import path from 'node:path';
 import * as vscode from 'vscode';
+import { addReference, ref, REFERENCE_TYPE } from "./reference";
+import { removeHeader, createHeader } from "./header";
 
-const map = new Map<vscode.Uri, string[]>();
-
-async function fileExists(uri: vscode.Uri): Promise<boolean> {
-	try {
-		await vscode.workspace.fs.stat(uri);
-		return true;
-	} catch {
-		return false;
-	}
-}
+export const UriToMcPath = new Map<vscode.Uri, string[]>();
+export const McPathToUri = new Map<string, vscode.Uri>();
 
 async function fileCheck(uri: vscode.Uri): Promise<vscode.FileType> {
 	try {
@@ -32,7 +26,7 @@ async function fileCheck(uri: vscode.Uri): Promise<vscode.FileType> {
 		return vscode.FileType.Unknown;
 	}
 }
-
+	
 export function activate(context: vscode.ExtensionContext) {
 
 
@@ -61,16 +55,63 @@ export function activate(context: vscode.ExtensionContext) {
 
 		const dataUri = vscode.Uri.joinPath(wf[0].uri, "data");
 
-		const paths = await getFiles(dataUri);
+		const dataUris = await getFiles(dataUri);
 
-		for (const item of paths) {
-			console.log(makePath(item));
-			map.set(item, makePath(item));
-
-			await findFuncInFile(item);
+		for (const uri of dataUris) { // 辞書作る
+			const itemPaths = makePath(uri);
+			UriToMcPath.set(uri, itemPaths);
+			McPathToUri.set(itemPaths[0], uri);
 		}
 
-		console.log("終わり");
+		for (const uri of dataUris) {
+
+			const mcPath = UriToMcPath.get(uri);
+
+			if (mcPath === undefined) {
+				throw new Error("Invalid McPath");
+			}
+			const includeMcPaths = await findFuncInFile(uri);
+
+			for (const includeMcPath of includeMcPaths) {
+
+				const includeUri = McPathToUri.get(includeMcPath);
+
+				if (includeUri === undefined) {
+					throw new Error("Invalid Uri");
+				}
+				addReference(
+					includeUri,
+					mcPath[1],
+					uri
+				);
+			}
+		}
+
+		// ファイル編集
+		const edit = new vscode.WorkspaceEdit();
+		for (const uri of dataUris) {
+			const McPath = UriToMcPath.get(uri);
+			if (typeof McPath === "undefined") { throw new Error("Invalid McPath"); }
+			if (McPath[2] !== "mcfunction") { continue; }
+
+			const header = createHeader(uri);
+			const body = removeHeader(await readFile(uri));
+
+			const newText = header + body;
+
+
+			const document = await vscode.workspace.openTextDocument(uri);
+
+			edit.replace(
+				uri,
+				new vscode.Range(
+					document.positionAt(0),
+					document.positionAt(document.getText().length)
+				),
+				newText
+			);
+		}
+		await vscode.workspace.applyEdit(edit);
 	});
 }
 
@@ -87,14 +128,14 @@ async function getFiles(uri: vscode.Uri): Promise<vscode.Uri[]> {
 		if (type === vscode.FileType.Directory) {
 			const children = await getFiles(childUri);
 			results.push(...children);
-		} else {
+		} else if (type === vscode.FileType.File) {
 			results.push(childUri);
 		}
 	}
 	return results;
 }
 
-function makePath(input: vscode.Uri): string[] {
+export function makePath(input: vscode.Uri): string[] {
 
 	let range = 3;
 
@@ -120,7 +161,7 @@ function makePath(input: vscode.Uri): string[] {
 	return [path, type, suffix];
 }
 
-async function readFile(input: vscode.Uri): Promise<Thenable<string>> {
+export async function readFile(input: vscode.Uri): Promise<Thenable<string>> {
 	const content = await vscode.workspace.fs.readFile(input);
 	const decoded = await vscode.workspace.decode(content);
 
@@ -130,7 +171,7 @@ async function readFile(input: vscode.Uri): Promise<Thenable<string>> {
 async function findFuncInFile(input: vscode.Uri): Promise<string[]> {
 
 	let results: string[] = [];
-	const paths = map.get(input); // 辞書から探す
+	const paths = UriToMcPath.get(input); // 辞書から探す
 
 	if (!paths) { return results; }
 
@@ -147,7 +188,11 @@ async function findFuncInFile(input: vscode.Uri): Promise<string[]> {
 				for (const value of json["values"]) {
 					if (typeof value === "string") { results.push(value); }
 
-					else if (value !== null && typeof value === "object" && "id" in value && typeof value.id === "string") { results.push(value.id); }
+					else if (
+						value !== null &&
+						typeof value === "object" &&
+						"id" in value &&
+						typeof value.id === "string") { results.push(value.id); }
 				}
 
 			} else if (["advancement"].includes(paths[1])) { // advancement: rewards.functionの中身があれば良い
@@ -181,9 +226,6 @@ async function findFuncInFile(input: vscode.Uri): Promise<string[]> {
 		let commands = textToCommand(file);
 		results = pickFuncInCommand(commands);
 	}
-
-	console.log(paths[1]);
-	console.log("result: " + results);
 	return results;
 }
 
