@@ -2,11 +2,14 @@ import path from 'node:path';
 import * as vscode from 'vscode';
 import { ref, REFERENCE_TYPE } from "./reference";
 import { start } from 'node:repl';
-import { readFile, makePath, UriToMcPath, McPathToUri } from "./extension";
+import { readFile, makePath, UriToMcPath, McPathToUri, escapeRegExp } from "./extension";
+import { escape } from 'node:querystring';
 
+export const HEADER_PREFIX = '#||';
+export const HEADER_SUFFIX = '||#';
+export const HEADER_START = HEADER_PREFIX + " --- CrossRefs --- " + HEADER_SUFFIX;
+export const HEADER_END = HEADER_PREFIX + " ------ End ------ " + HEADER_SUFFIX;
 
-export const HEADER_START = "#|| --- CrossRefs --- ||#";
-export const HEADER_END =   "#|| ------ End ------ ||#";
 
 export function hasHeader(input: string): boolean {
     const hasStart: boolean = input.includes(HEADER_START);
@@ -25,16 +28,24 @@ export function hasHeader(input: string): boolean {
 }
 
 export function removeHeader(input: string): string {
+	let result = input;
 
-    if (!hasHeader(input)) { return input; }
+	const headerRegex = new RegExp(
+		escapeRegExp(HEADER_START) +
+		"[\\s\\S]*?" +
+		escapeRegExp(HEADER_END)
+	);
 
-    const startIndex = input.indexOf(HEADER_START);
-    const endIndex = input.indexOf(HEADER_END);
+	result = result.replace(headerRegex, "");
 
-    return (
-        input.slice(0, startIndex) +
-        input.slice(endIndex + HEADER_END.length)
-    );
+	const prefixRegex = new RegExp(
+		"^" + escapeRegExp(HEADER_PREFIX) + ".*\\r?\\n",
+		"gm"
+	);
+
+	result = result.replace(prefixRegex, "");
+
+	return result;
 }
 
 export function createHeader(input: vscode.Uri): string {
@@ -67,10 +78,9 @@ export function createHeader(input: vscode.Uri): string {
             addTexts.push("");
         }
     }
-    addTexts.push("");
     addTexts.push(HEADER_END.slice(3, HEADER_END.length));
 
-    result = addTexts.join("\n#||");
+    result = addTexts.join("\n" + HEADER_PREFIX);
 
     return result;
 }

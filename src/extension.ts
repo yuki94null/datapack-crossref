@@ -1,17 +1,16 @@
 import * as vscode from 'vscode';
-import { addReference } from "./reference";
+import { addReference, REFERENCE_TYPE, ref } from "./reference";
 import { removeHeader, createHeader, HEADER_START, HEADER_END, hasHeader } from "./header";
-import { create } from 'domain';
-import { escape } from 'querystring';
 
 export const UriToMcPath = new Map<vscode.Uri, string[]>();
 export const McPathToUri = new Map<string, vscode.Uri>();
 
 const allFiles = new Set<vscode.Uri>();
 
-function escapeRegExp(text: string): string {
+export function escapeRegExp(text: string): string {
 	return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+
 
 function createLinks(document: vscode.TextDocument): vscode.DocumentLink[] {
 	const links: vscode.DocumentLink[] = [];
@@ -23,15 +22,41 @@ function createLinks(document: vscode.TextDocument): vscode.DocumentLink[] {
 	const startIndex = text.indexOf(HEADER_START);
 	const endIndex = text.indexOf(HEADER_END);
 
+	let typeIndexes: [string, number][] = [];
+	for (const type of REFERENCE_TYPE) {
+		const index = text.indexOf('#||    # ' + type);
+
+		if (index !== -1) {
+			typeIndexes.push([type, index]);
+		}
+	}
+	typeIndexes.sort((a, b) => a[1] - b[1]);
+
 	for (const uri of allFiles) {
-		const McPath = UriToMcPath.get(uri);
-		if (typeof McPath === "undefined") { continue; }
-		const regex = new RegExp('@' + escapeRegExp(McPath[0]), 'g');
-		let match;
-		while ((match = regex.exec(text))) {
+		const mcPath = UriToMcPath.get(uri);
+		if (typeof mcPath === "undefined") { continue; }
+
+		const typeIndex = typeIndexes.findIndex((value) => value[0] === mcPath[1]);
+		const firstTypeAreaStart = typeIndexes[0]?.[1] ?? endIndex;
+		const typeAreaStart = typeIndexes[typeIndex]?.[1] ?? endIndex;
+		const typeAreaEnd = typeIndexes[typeIndex + 1]?.[1] ?? endIndex;
+
+		const regex = new RegExp('@' + escapeRegExp(mcPath[0]), 'g');
+
+		for (const match of text.matchAll(regex)) {
 			const matchStart = match.index;
+			if (matchStart === undefined) {
+				continue;
+			}
 			const matchEnd = match.index + match[0].length;
-			if (matchStart < startIndex || matchEnd > endIndex) { continue; }
+
+			let matchInHeader = matchStart > startIndex + HEADER_START.length && matchEnd < endIndex;
+
+			if (!matchInHeader) { continue; }
+
+			let matchInType = matchStart > typeAreaStart && matchEnd < typeAreaEnd;
+
+			if (!matchInType && !(mcPath[1] === "function" && matchEnd < firstTypeAreaStart)) { continue; }
 
 			const start = document.positionAt(matchStart);
 			const end = document.positionAt(matchEnd);
@@ -69,48 +94,36 @@ export function activate(context: vscode.ExtensionContext) {
 	vscode.commands.registerCommand('datapack-crossref.removeCrossRef', removeCrossRef);
 }
 
+
 // functions
 
-async function scanDatapack() {
+async function getDatapackFiles(): Promise<vscode.Uri[] | undefined> {
 	const wf = vscode.workspace.workspaceFolders;
-
 	if (!wf) {
 		vscode.window.showErrorMessage('No WorkSpace Here');
-		return;
-	};
-
+		return undefined;
+	}
 	const mcmetaUri = vscode.Uri.joinPath(wf[0].uri, 'pack.mcmeta');
-
 	if (!(await fileCheck(mcmetaUri) === vscode.FileType.File)) {
 		vscode.window.showErrorMessage('This is not Datapack Workspace');
-		return;
+		return undefined;
 	}
-
 	const dataUri = vscode.Uri.joinPath(wf[0].uri, "data");
+	return await getFiles(dataUri);
+}
 
-	const dataUris = await getFiles(dataUri);
+async function scanDatapack() {
+	const dataUris = await getDatapackFiles();
+
+	if (typeof dataUris === "undefined") { return; }
 
 	createPathDictionary(dataUris);
 }
 
 async function makeCrossRef() {
-	const wf = vscode.workspace.workspaceFolders;
+	const dataUris = await getDatapackFiles();
 
-	if (!wf) {
-		vscode.window.showErrorMessage('No WorkSpace Here');
-		return;
-	};
-
-	const mcmetaUri = vscode.Uri.joinPath(wf[0].uri, 'pack.mcmeta');
-
-	if (!(await fileCheck(mcmetaUri) === vscode.FileType.File)) {
-		vscode.window.showErrorMessage('This is not Datapack Workspace');
-		return;
-	}
-
-	const dataUri = vscode.Uri.joinPath(wf[0].uri, "data");
-
-	const dataUris = await getFiles(dataUri);
+	if (typeof dataUris === "undefined") { return; }
 
 	createPathDictionary(dataUris);
 
@@ -118,7 +131,22 @@ async function makeCrossRef() {
 	await updateHeaders(dataUris);
 }
 
+async function removeCrossRef() {
+	const dataUris = await getDatapackFiles();
+
+	if (typeof dataUris === "undefined") { return; }
+
+	createPathDictionary(dataUris);
+
+	await buildReference(dataUris);
+	await removeHeaders(dataUris);
+}
+
 function createPathDictionary(input: vscode.Uri[]) {
+	allFiles.clear();
+	UriToMcPath.clear();
+	McPathToUri.clear();
+	ref.clear();
 	for (const uri of input) { // 辞書作る
 		const itemPaths = makePath(uri);
 		UriToMcPath.set(uri, itemPaths);
@@ -127,30 +155,6 @@ function createPathDictionary(input: vscode.Uri[]) {
 	}
 }
 
-async function removeCrossRef() {
-	const wf = vscode.workspace.workspaceFolders;
-
-	if (!wf) {
-		vscode.window.showErrorMessage('No WorkSpace Here');
-		return;
-	};
-
-	const mcmetaUri = vscode.Uri.joinPath(wf[0].uri, 'pack.mcmeta');
-
-	if (!(await fileCheck(mcmetaUri) === vscode.FileType.File)) {
-		vscode.window.showErrorMessage('This is not Datapack Workspace');
-		return;
-	}
-
-	const dataUri = vscode.Uri.joinPath(wf[0].uri, "data");
-
-	const dataUris = await getFiles(dataUri);
-
-	createPathDictionary(dataUris);
-
-	await buildReference(dataUris);
-	await removeHeaders(dataUris);
-}
 
 async function buildReference(input: vscode.Uri[]) {
 	for (const currentUri of input) {
@@ -158,7 +162,7 @@ async function buildReference(input: vscode.Uri[]) {
 		const mcPath = UriToMcPath.get(currentUri);
 
 		if (mcPath === undefined) {
-			throw new Error("Invalid McPath");
+			throw new Error("Invalid mcPath");
 		}
 		const includeMcPaths = await findFuncInFile(currentUri);
 
@@ -183,9 +187,9 @@ async function removeHeaders(input: vscode.Uri[]) {
 	// ファイル編集
 	const edit = new vscode.WorkspaceEdit();
 	for (const uri of input) {
-		const McPath = UriToMcPath.get(uri);
-		if (typeof McPath === "undefined") { throw new Error("Invalid McPath"); }
-		if (McPath[2] !== "mcfunction") { continue; }
+		const mcPath = UriToMcPath.get(uri);
+		if (typeof mcPath === "undefined") { throw new Error("Invalid mcPath"); }
+		if (mcPath[2] !== "mcfunction") { continue; }
 
 		const body = removeHeader(await readFile(uri));
 
@@ -207,9 +211,9 @@ async function updateHeaders(input: vscode.Uri[]) {
 	// ファイル編集
 	const edit = new vscode.WorkspaceEdit();
 	for (const uri of input) {
-		const McPath = UriToMcPath.get(uri);
-		if (typeof McPath === "undefined") { throw new Error("Invalid McPath"); }
-		if (McPath[2] !== "mcfunction") { continue; }
+		const mcPath = UriToMcPath.get(uri);
+		if (typeof mcPath === "undefined") { throw new Error("Invalid mcPath"); }
+		if (mcPath[2] !== "mcfunction") { continue; }
 
 		const header = createHeader(uri);
 		const body = removeHeader(await readFile(uri));
@@ -219,14 +223,16 @@ async function updateHeaders(input: vscode.Uri[]) {
 
 		const document = await vscode.workspace.openTextDocument(uri);
 
-		edit.replace(
-			uri,
-			new vscode.Range(
-				document.positionAt(0),
-				document.positionAt(document.getText().length)
-			),
-			newText
-		);
+		if (document.getText() !== newText) {
+			edit.replace(
+				uri,
+				new vscode.Range(
+					document.positionAt(0),
+					document.positionAt(document.getText().length)
+				),
+				newText
+			);
+		}
 	}
 	await vscode.workspace.applyEdit(edit);
 }
@@ -362,9 +368,7 @@ async function findFuncInFile(input: vscode.Uri): Promise<string[]> {
 		results = pickFuncInCommand(commands);
 	}
 
-	console.log("before: " + results);
 	results = results.map(result => { if (!result.includes(":")) { return "minecraft:" + result; } return result; });
-	console.log("after:  " + results);
 	return results;
 }
 
