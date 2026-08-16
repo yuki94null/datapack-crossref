@@ -1,16 +1,11 @@
 import * as vscode from 'vscode';
-import { addReference, REFERENCE_TYPE, ref } from "./reference";
+import { REFERENCE_TYPE, ReferenceType } from "./reference";
 import { removeHeader, createHeader, HEADER_START, HEADER_END, hasHeader } from "./header";
-
-export const UriToMcPath = new Map<vscode.Uri, string[]>();
-export const McPathToUri = new Map<string, vscode.Uri>();
-
-const allFiles = new Set<vscode.Uri>();
+import { datapackIndex, McPath } from "./index";
 
 export function escapeRegExp(text: string): string {
 	return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
-
 
 function createLinks(document: vscode.TextDocument): vscode.DocumentLink[] {
 	const links: vscode.DocumentLink[] = [];
@@ -32,8 +27,8 @@ function createLinks(document: vscode.TextDocument): vscode.DocumentLink[] {
 	}
 	typeIndexes.sort((a, b) => a[1] - b[1]);
 
-	for (const uri of allFiles) {
-		const mcPath = UriToMcPath.get(uri);
+	for (const uri of datapackIndex.getAllUris()) {
+		const mcPath = datapackIndex.getPath(uri);
 		if (typeof mcPath === "undefined") { continue; }
 
 		const typeIndex = typeIndexes.findIndex((value) => value[0] === mcPath[1]);
@@ -76,6 +71,7 @@ export class DocumentLinkProvider implements vscode.DocumentLinkProvider {
 export function activate(context: vscode.ExtensionContext) {
 
 	console.log('"datapack-crossref" is now active!');
+	scanDatapack();
 
 	const documentLinkProvider = vscode.languages.registerDocumentLinkProvider(
 		{ scheme: "file" },
@@ -116,7 +112,7 @@ async function scanDatapack() {
 	const dataUris = await getDatapackFiles();
 
 	if (typeof dataUris === "undefined") { return; }
-
+	datapackIndex.clear();
 	createPathDictionary(dataUris);
 }
 
@@ -125,6 +121,7 @@ async function makeCrossRef() {
 
 	if (typeof dataUris === "undefined") { return; }
 
+	datapackIndex.clear();
 	createPathDictionary(dataUris);
 
 	await buildReference(dataUris);
@@ -136,6 +133,7 @@ async function removeCrossRef() {
 
 	if (typeof dataUris === "undefined") { return; }
 
+	datapackIndex.clear();
 	createPathDictionary(dataUris);
 
 	await buildReference(dataUris);
@@ -143,15 +141,8 @@ async function removeCrossRef() {
 }
 
 function createPathDictionary(input: vscode.Uri[]) {
-	allFiles.clear();
-	UriToMcPath.clear();
-	McPathToUri.clear();
-	ref.clear();
 	for (const uri of input) { // 辞書作る
-		const itemPaths = makePath(uri);
-		UriToMcPath.set(uri, itemPaths);
-		McPathToUri.set(itemPaths[0], uri);
-		allFiles.add(uri);
+		datapackIndex.register(uri, makePath(uri) as McPath);
 	}
 }
 
@@ -159,7 +150,7 @@ function createPathDictionary(input: vscode.Uri[]) {
 async function buildReference(input: vscode.Uri[]) {
 	for (const currentUri of input) {
 
-		const mcPath = UriToMcPath.get(currentUri);
+		const mcPath = datapackIndex.getPath(currentUri);
 
 		if (mcPath === undefined) {
 			throw new Error("Invalid mcPath");
@@ -168,50 +159,27 @@ async function buildReference(input: vscode.Uri[]) {
 
 		for (const includeMcPath of includeMcPaths) {
 
-			const includeUri = McPathToUri.get(includeMcPath);
+			const includeUri = datapackIndex.getUri(includeMcPath);
 
 			if (includeUri === undefined) {
 				console.error("Invalid Uri: " + includeMcPath);
 				continue;
 			}
-			addReference(
+			datapackIndex.addReference(
 				includeUri,
-				mcPath[1],
+				mcPath[1] as ReferenceType,
 				currentUri
 			);
 		}
 	}
 }
 
-async function removeHeaders(input: vscode.Uri[]) {
-	// ファイル編集
-	const edit = new vscode.WorkspaceEdit();
-	for (const uri of input) {
-		const mcPath = UriToMcPath.get(uri);
-		if (typeof mcPath === "undefined") { throw new Error("Invalid mcPath"); }
-		if (mcPath[2] !== "mcfunction") { continue; }
-
-		const body = removeHeader(await readFile(uri));
-
-		const document = await vscode.workspace.openTextDocument(uri);
-
-		edit.replace(
-			uri,
-			new vscode.Range(
-				document.positionAt(0),
-				document.positionAt(document.getText().length)
-			),
-			body
-		);
-	}
-	await vscode.workspace.applyEdit(edit);
-}
 
 async function updateHeaders(input: vscode.Uri[]) {
 	// ファイル編集
 	const edit = new vscode.WorkspaceEdit();
 	for (const uri of input) {
-		const mcPath = UriToMcPath.get(uri);
+		const mcPath = datapackIndex.getPath(uri);
 		if (typeof mcPath === "undefined") { throw new Error("Invalid mcPath"); }
 		if (mcPath[2] !== "mcfunction") { continue; }
 
@@ -233,6 +201,30 @@ async function updateHeaders(input: vscode.Uri[]) {
 				newText
 			);
 		}
+	}
+	await vscode.workspace.applyEdit(edit);
+}
+
+async function removeHeaders(input: vscode.Uri[]) {
+	// ファイル編集
+	const edit = new vscode.WorkspaceEdit();
+	for (const uri of input) {
+		const mcPath = datapackIndex.getPath(uri);
+		if (typeof mcPath === "undefined") { throw new Error("Invalid mcPath"); }
+		if (mcPath[2] !== "mcfunction") { continue; }
+
+		const body = removeHeader(await readFile(uri));
+
+		const document = await vscode.workspace.openTextDocument(uri);
+
+		edit.replace(
+			uri,
+			new vscode.Range(
+				document.positionAt(0),
+				document.positionAt(document.getText().length)
+			),
+			body
+		);
 	}
 	await vscode.workspace.applyEdit(edit);
 }
@@ -309,67 +301,45 @@ export async function readFile(input: vscode.Uri): Promise<Thenable<string>> {
 	return decoded;
 }
 
+const jsonExtractors: Partial<Record<ReferenceType, (json: unknown) => string[]>> = {
+	"tags/function": extractTagsFunction,
+	"advancement": extractAdvancement,
+	"enchantment": extractEnchantment,
+	"dialog": extractDialog,
+	"loot_table": extractCommandJson,
+	"recipe": extractCommandJson,
+	"item_modifier": extractCommandJson,
+};
+
 async function findFuncInFile(input: vscode.Uri): Promise<string[]> {
+	const paths = datapackIndex.getPath(input);
+	if (!paths) { return []; }
 
+	const [mcPath, type, suffix] = paths;
+
+	if (!["json", "mcfunction"].includes(suffix)) { return []; }
+
+	const file = await readFile(input);
 	let results: string[] = [];
-	const paths = UriToMcPath.get(input); // 辞書から探す
 
-	if (!paths) { return results; }
-
-	if (!(["json", "mcfunction"].includes(paths[2]))) { return results; } // 拡張子が`json`か`mcfunction`でなければやめる
-
-	const file = await readFile(input); // 中の文字列取得
-
-	if (["json"].includes(paths[2])) { // json系の処理
-
+	if (suffix === "json") {
 		try {
-			const json = JSON.parse(file); // json形式として扱う
-
-			if (["tags/function"].includes(paths[1])) { //  リストの中の生の値か、{}.idを取る
-				for (const value of json["values"]) {
-					if (typeof value === "string") { results.push(value); }
-
-					else if (
-						value !== null &&
-						typeof value === "object" &&
-						"id" in value &&
-						typeof value.id === "string") { results.push(value.id); }
-				}
-
-			} else if (["advancement"].includes(paths[1])) { // advancement: rewards.functionの中身があれば良い
-				results =
-					pickFuncInCommand(findObjectInJson(json["display"], "action", "command", "run_command")).concat(
-						json["rewards"]["function"]
-					);
-
-			} else if (["enchantment"].includes(paths[1])) { // enchantments: effects下のrun_functionと同じところのfunctionを取る
-				results =
-					pickFuncInCommand(findObjectInJson(json, "action", "command", "run_command")).concat(
-						findObjectInJson(json["effects"], "type", "function", "run_function")
-					);
-
-			} else if (["dialog"].includes(paths[1])) { // "command"の中身がfunctionであれば取る
-				results =
-					pickFuncInCommand(findObjectInJson(json, "action", "command", "run_command")).concat(
-						pickFuncInCommand(findObjectInJson(json, "type", "command", "run_command"))
-					);
-
-			} else if (["loot_table", "recipe", "item_modifier"].includes(paths[1])) { // "command"の中身がfunctionであれば取る
-				results = pickFuncInCommand(findObjectInJson(json, "action", "command", "run_command"));
-
-			}
+			const json = JSON.parse(file);
+			const extractor = jsonExtractors[type as ReferenceType];
+			if (extractor) { results = extractor(json); }
 		} catch {
-			vscode.window.showErrorMessage(paths[0] + " is invalid");
+			vscode.window.showErrorMessage(mcPath + " is invalid");
 			console.warn("invalid structure: " + input);
 		}
-	}
-	else if (paths[1] === "function") {
-		let commands = textToCommand(file);
-		results = pickFuncInCommand(commands);
+	} else if (type === "function") {
+		results = pickFuncInCommand(textToCommand(file));
 	}
 
-	results = results.map(result => { if (!result.includes(":")) { return "minecraft:" + result; } return result; });
-	return results;
+	return results.map(normalizeNamespace);
+}
+
+function normalizeNamespace(result: string): string {
+	return result.includes(":") ? result : "minecraft:" + result;
 }
 
 function textToCommand(input: string): string[] { // '\\n'(バックスラッシュ+改行)をスペースに置き換え、改行ごとにリストに変換
@@ -410,6 +380,59 @@ function findObjectInJson(json: unknown, key1: string, key2: string, obj: string
 	}
 
 	return results;
+}
+
+function extractTagsFunction(json: unknown): string[] {
+	const results: string[] = [];
+	if (typeof json !== "object" || json === null || !("values" in json)) { return results; }
+
+	const values = (json as { values: unknown }).values;
+	if (!Array.isArray(values)) { return results; }
+
+	for (const value of values) {
+		if (typeof value === "string") {
+			results.push(value);
+		} else if (
+			value !== null &&
+			typeof value === "object" &&
+			"id" in value &&
+			typeof (value as Record<string, unknown>).id === "string"
+		) {
+			results.push((value as Record<string, unknown>).id as string);
+		}
+	}
+	return results;
+}
+
+function extractAdvancement(json: unknown): string[] {
+	const record = json as Record<string, unknown>;
+	const fromDisplay = pickFuncInCommand(
+		findObjectInJson(record["display"], "action", "command", "run_command")
+	);
+	const rewardFunction = (record["rewards"] as Record<string, unknown> | undefined)?.["function"];
+
+	const results = [...fromDisplay];
+	if (typeof rewardFunction === "string") { results.push(rewardFunction); }
+	return results;
+}
+
+function extractEnchantment(json: unknown): string[] {
+	const record = json as Record<string, unknown>;
+	const fromCommands = pickFuncInCommand(
+		findObjectInJson(record, "action", "command", "run_command")
+	);
+	const fromEffects = findObjectInJson(record["effects"], "type", "function", "run_function");
+	return fromCommands.concat(fromEffects);
+}
+
+function extractDialog(json: unknown): string[] {
+	const fromAction = pickFuncInCommand(findObjectInJson(json, "action", "command", "run_command"));
+	const fromType = pickFuncInCommand(findObjectInJson(json, "type", "command", "run_command"));
+	return fromAction.concat(fromType);
+}
+
+function extractCommandJson(json: unknown): string[] {
+	return pickFuncInCommand(findObjectInJson(json, "action", "command", "run_command"));
 }
 
 export function deactivate() { }

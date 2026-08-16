@@ -1,9 +1,7 @@
-import path from 'node:path';
 import * as vscode from 'vscode';
-import { ref, REFERENCE_TYPE } from "./reference";
-import { start } from 'node:repl';
-import { readFile, makePath, UriToMcPath, McPathToUri, escapeRegExp } from "./extension";
-import { escape } from 'node:querystring';
+import { REFERENCE_TYPE } from "./reference";
+import { makePath, escapeRegExp } from "./extension";
+import { datapackIndex } from "./index";
 
 export const HEADER_PREFIX = '#||';
 export const HEADER_SUFFIX = '||#';
@@ -59,7 +57,7 @@ export function createHeader(input: vscode.Uri): string {
     addTexts.push(" @" + thisUri);
     addTexts.push("");
 
-    const refs = ref.get(input);
+    const refs = datapackIndex.getReferences(input);
 
     if (refs) {
 
