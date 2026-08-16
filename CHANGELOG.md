@@ -8,6 +8,14 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [0.0.1] - 2026-08-16
 
+## [0.0.2] - 2026-08-16
+
+一行目ヘッダー取り込みバグを修正
+
+## [0.0.3] - 2026-08-16
+
+改行無限増殖バグを修正
+
 ### Added
 
 - Minecraft データパック内のファイル(`function` / `tags/function` / `advancement` / `dialog` / `enchantment` / `loot_table` / `recipe` / `item_modifier`)を横断的にスキャンし、参照関係を解析する機能
