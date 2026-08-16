@@ -6,23 +6,18 @@ import { datapackIndex } from "./index";
 export const HEADER_PREFIX = '#||';
 export const HEADER_SUFFIX = '||#';
 export const HEADER_START = HEADER_PREFIX + " --- CrossRefs --- " + HEADER_SUFFIX;
-export const HEADER_END = HEADER_PREFIX + " ------ End ------ " + HEADER_SUFFIX + "\n";
+export const HEADER_END = HEADER_PREFIX + " ------ End ------ " + HEADER_SUFFIX;
 
 
 export function hasHeader(input: string): boolean {
-    const hasStart: boolean = input.includes(HEADER_START);
-    const hasEnd: boolean = input.includes(HEADER_END);
 
-    if (hasStart !== hasEnd) { return false; } // ヘッダ足りない
+    const headerRegex = new RegExp(
+		escapeRegExp(HEADER_START) +
+		"[\\s\\S]*?" +
+		escapeRegExp(HEADER_END)
+	);
 
-    if (!hasStart) { return false; } // ヘッダない
-
-    const startIndex = input.indexOf(HEADER_START);
-    const endIndex = input.indexOf(HEADER_END);
-
-    if (startIndex > endIndex) { return false; } // 順序おかしい
-
-    return true;
+    return headerRegex.test(input) !== null;
 }
 
 export function removeHeader(input: string): string {
@@ -31,7 +26,8 @@ export function removeHeader(input: string): string {
 	const headerRegex = new RegExp(
 		escapeRegExp(HEADER_START) +
 		"[\\s\\S]*?" +
-		escapeRegExp(HEADER_END)
+		escapeRegExp(HEADER_END) +
+        "\\r?\\n?"
 	);
 
 	result = result.replace(headerRegex, "");
@@ -79,6 +75,6 @@ export function createHeader(input: vscode.Uri): string {
     addTexts.push(HEADER_END.slice(3, HEADER_END.length));
 
     result = addTexts.join("\n" + HEADER_PREFIX);
-
+    result = result + "\n";
     return result;
 }
