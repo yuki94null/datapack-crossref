@@ -1,71 +1,58 @@
-# datapack-crossref README
+# datapack-crossref
 
-This is the README for your extension "datapack-crossref". After writing up a brief description, we recommend including the following sections.
+Minecraft データパック内のファイル間の参照関係(クロスリファレンス)を解析し、`.mcfunction` ファイルの先頭に参照元一覧をヘッダーとして自動挿入する VSCode 拡張機能です。
 
 ## Features
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+- データパック内の `function` / `tags/function` / `advancement` / `dialog` / `enchantment` / `loot_table` / `recipe` / `item_modifier` を横断的にスキャンし、「どのファイルがどの `.mcfunction` を呼び出しているか」を解析します。
+- 解析結果をもとに、各 `.mcfunction` ファイルの先頭に参照元一覧のヘッダーコメントを自動挿入します。
 
-For example if there is an image subfolder under your extension project workspace:
+  ```.mcfunction
+  #|| --- CrossRefs --- ||#
+  #|| @minecraft:example/main
+  #||
+  #||     # function
+  #||         @minecraft:example/caller
+  #|| ------ End ------ ||#
+  ```
 
-\!\[feature X\]\(images/feature-x.png\)
-
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+- ヘッダー内の参照元パスはドキュメントリンクとして扱われ、クリックすると該当ファイルへジャンプできます。
+- 挿入したヘッダーは、専用コマンドで一括削除することもできます。
 
 ## Requirements
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+- 対象ワークスペースのルートに `pack.mcmeta` が存在する、Minecraft データパックのプロジェクト構成であること。
+- ワークスペース内に `data/<namespace>/...` の形式でファイルが配置されていること。
+
+追加の外部依存関係はありません。
+
+## Commands
+
+このコマンドはコマンドパレット(`Cmd+Shift+P` / `Ctrl+Shift+P`)から実行できます。
+
+| コマンド | 説明 |
+| --- | --- |
+| `datapack-crossref: scanDatapack` | データパック内のファイルをスキャンし、パス辞書を再構築します。 |
+| `datapack-crossref: makeCrossRef` | 参照関係を解析し、各 `.mcfunction` ファイルにヘッダーを挿入・更新します。 |
+| `datapack-crossref: removeCrossRef` | 挿入済みのヘッダーを全ファイルから削除します。 |
+
+> **Note:** ヘッダーの生成・更新は上記コマンドの手動実行によってのみ行われます。ファイル保存時の自動実行には対応していません。
 
 ## Extension Settings
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
-For example:
-
-This extension contributes the following settings:
-
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+現時点で `contributes.configuration` によるユーザー設定はありません。
 
 ## Known Issues
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+- 大規模なデータパックでは、`scanDatapack` / `makeCrossRef` の実行に時間がかかる場合があります。
+- JSON ファイルの構造が不正な場合、該当ファイルはエラーメッセージとともにスキップされます。
 
 ## Release Notes
 
-Users appreciate release notes as you update your extension.
+### 0.1.0
 
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
+初回リリース。データパックのスキャン、クロスリファレンスヘッダーの挿入・削除、ドキュメントリンク機能を実装。
 
 ---
-
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
 
 **Enjoy!**
