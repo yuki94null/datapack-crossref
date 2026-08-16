@@ -3,6 +3,11 @@
   "displayName": "datapack-crossref",
   "description": "Minecraft Datapack cross-reference extension",
   "version": "0.0.1",
+  "publisher": "yuki94null",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yuki94null/datapack-crossref.git"
+  },
   "engines": {
     "vscode": "^1.125.0"
   },
@@ -10,16 +15,11 @@
     "Other"
   ],
   "activationEvents": [
-    "onLanguage:mcfunction",
-    "onLanguage:json"
+    "onLanguage:mcfunction"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
-      {
-        "command": "datapack-crossref.helloWorld",
-        "title": "Hello World"
-      },
       {
         "command": "datapack-crossref.scanDatapack",
         "title": "Scan Datapack"
@@ -30,7 +30,7 @@
       },
       {
         "command": "datapack-crossref.makeCrossRef",
-        "title": "make CrossRef"
+        "title": "Make CrossRef"
       }
     ]
   },
