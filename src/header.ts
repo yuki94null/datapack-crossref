@@ -6,7 +6,7 @@ import { datapackIndex } from "./index";
 export const HEADER_PREFIX = '#||';
 export const HEADER_SUFFIX = '||#';
 export const HEADER_START = HEADER_PREFIX + " --- CrossRefs --- " + HEADER_SUFFIX;
-export const HEADER_END = HEADER_PREFIX + " ------ End ------ " + HEADER_SUFFIX;
+export const HEADER_END = HEADER_PREFIX + " ------ End ------ " + HEADER_SUFFIX + "\n";
 
 
 export function hasHeader(input: string): boolean {
